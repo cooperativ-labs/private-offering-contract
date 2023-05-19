@@ -1,15 +1,11 @@
-/* SPDX-License-Identifier: UNLICENSED */
+// SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.18;
 
 import "./openzeppelin/SafeMath.sol";
 import "./ERC1410Operator.sol";
-import "./IERC1410.sol";
-import "./Ownable.sol";
-import "./ERC1410Whitelist.sol";
-import "./ERC1643.sol";
 
-contract ERC1410Standard is ERC1410Operator, ERC1410Whitelist, ERC1643 {
+contract ERC1410Standard is ERC1410Operator {
     using SafeMath for uint256;
 
     // Declare the RedeemedByPartition event
@@ -30,8 +26,12 @@ contract ERC1410Standard is ERC1410Operator, ERC1410Whitelist, ERC1643 {
     /**
      * @return true if `msg.sender` is the owner of the contract.
      */
-    function isOwner() external view returns (bool) {
-        return _isOwner();
+    function isOwner(address _account) external view returns (bool) {
+        if (owner() == _account) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -46,11 +46,11 @@ contract ERC1410Standard is ERC1410Operator, ERC1410Whitelist, ERC1643 {
     /// @param _partition The partition to allocate the increase in balance
     /// @param _tokenHolder The token holder whose balance should be increased
     /// @param _value The amount by which to increase the balance
-    function issueByPartition(
+    function _issueByPartition(
         bytes32 _partition,
         address _tokenHolder,
         uint256 _value
-    ) external onlyOwnerOrManager whitelisted(_tokenHolder) {
+    ) internal whitelisted(_tokenHolder) {
         // Add the function to validate the `_data` parameter
         _validateParams(_partition, _value);
         require(_tokenHolder != address(0), "Invalid token receiver");
@@ -68,6 +68,22 @@ contract ERC1410Standard is ERC1410Operator, ERC1410Whitelist, ERC1643 {
         _totalSupply = _totalSupply.add(_value);
         balances[_tokenHolder] = balances[_tokenHolder].add(_value);
         emit IssuedByPartition(_partition, _tokenHolder, _value);
+    }
+
+    function issueByPartition(
+        bytes32 _partition,
+        address _tokenHolder,
+        uint256 _value
+    ) external onlyOwnerOrManager {
+        _issueByPartition(_partition, _tokenHolder, _value);
+    }
+
+    function operatorIssueByPartition(
+        bytes32 _partition,
+        address _tokenHolder,
+        uint256 _value
+    ) external onlyOperatorForPartition(_partition, msg.sender) {
+        _issueByPartition(_partition, _tokenHolder, _value);
     }
 
     /// @notice Decreases totalSupply and the corresponding amount of the specified partition of msg.sender
@@ -192,12 +208,20 @@ contract ERC1410Standard is ERC1410Operator, ERC1410Whitelist, ERC1643 {
 
     function addManager(address _manager) public onlyOwner {
         _addManager(_manager);
-        _addToWhitelist(_manager);
+        if (!_isWhitelisted(_manager)) {
+            _addToWhitelist(_manager);
+        }
     }
 
     function removeManager(address _manager) public onlyOwner {
         _removeManager(_manager);
-        _removeFromWhitelist(_manager);
+        if (_isWhitelisted(_manager)) {
+            _removeFromWhitelist(_manager);
+        }
+    }
+
+    function isWhitelisted(address _address) external view returns (bool) {
+        return _isWhitelisted(_address);
     }
 
     function totalSupplyByPartition(
