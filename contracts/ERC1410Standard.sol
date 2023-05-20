@@ -220,6 +220,18 @@ contract ERC1410Standard is ERC1410Operator {
         }
     }
 
+    /**
+     * @dev Removes an address from the whitelist.
+     * @param account The address to be removed from the whitelist.
+     */
+    function removeFromWhitelist(
+        address account
+    ) public virtual onlyOwnerOrManager {
+        // require the balance of the address is zero
+        require(_balanceOf(account) == 0, "Balance not zero");
+        _removeFromWhitelist(account);
+    }
+
     function isWhitelisted(address _address) external view returns (bool) {
         return _isWhitelisted(_address);
     }
