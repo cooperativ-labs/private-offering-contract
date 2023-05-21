@@ -94,6 +94,7 @@ contract SwapContract {
     /// @notice Initiate a new order
     /// @dev Checks if the user has sufficient balance to create the order.
     ///      Checks if the user is not in the cannotPurchase mapping, if the order is an ask order.
+    ///      Checks if the user is the owner or manager of the share token, if the order is a share issuance ask order.
     ///      Creates a new order and adds it to the orders mapping.
     ///      Increments the nextOrderId. Returns the id of the created order.
     /// @param partition The partition of the token to trade
