@@ -154,15 +154,15 @@ contract SwapContract {
     /// @param orderId The id of the order to approve
     function approveOrder(uint256 orderId) public onlyOwnerOrManager {
         require(
+            swapApprovalsEnabled || txnApprovalsEnabled,
+            "Approvals toggled off, no approval required"
+        );
+        require(
             !orders[orderId].status.isDisapproved,
             "Order already disapproved"
         );
         require(!orders[orderId].status.isApproved, "Order already approved");
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
-        require(
-            swapApprovalsEnabled || txnApprovalsEnabled,
-            "Approvals toggled off, no approval required"
-        );
         require(
             (txnApprovalsEnabled && orders[orderId].status.orderAccepted) ||
                 !txnApprovalsEnabled,
@@ -261,12 +261,12 @@ contract SwapContract {
     }
 
     /// @notice Fills a given order with a specific amount
-    /// @dev Checks if the order is an ask order and fills it using `_fillSale`, otherwise it fills it using `_fillBid`.
+    /// @dev Checks if the order is an ask order and fills it using `_fillAsk`, otherwise it fills it using `_fillBid`.
     /// @param orderId The id of the order to fill
     /// @param amount The amount to fill the order with
     function fillOrder(uint256 orderId, uint256 amount) public payable {
         if (orders[orderId].orderType.isAskOrder) {
-            _fillSale(orderId, amount);
+            _fillAsk(orderId, amount);
         } else {
             _fillBid(orderId, amount);
         }
@@ -278,7 +278,7 @@ contract SwapContract {
     ///      it issues new shares to the filler, otherwise it transfers shares from the initiator to the filler.
     /// @param orderId The id of the order to fill
     /// @param amount The amount to fill the order with
-    function _fillSale(uint256 orderId, uint256 amount) internal {
+    function _fillAsk(uint256 orderId, uint256 amount) internal {
         require(canFillOrder(orderId, amount), "Order cannot be filled");
 
         Proceeds memory proceeds = unclaimedProceeds[orders[orderId].initiator];
@@ -296,7 +296,7 @@ contract SwapContract {
         } else {
             require(
                 msg.value == orders[orderId].price * amount,
-                "Incorrect Ether amount sent"
+                "Incorrect Ether amount sent to fill ask order"
             );
             proceeds.ethProceeds += orders[orderId].price * amount;
         }
@@ -344,7 +344,7 @@ contract SwapContract {
         } else {
             require(
                 msg.value >= orders[orderId].price * orders[orderId].amount,
-                "Incorrect Ether amount sent"
+                "Incorrect Ether amount sent to fill bid order"
             );
             proceeds.ethProceeds +=
                 orders[orderId].price *

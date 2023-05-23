@@ -94,6 +94,7 @@ contract SwapContract {
     /// @notice Initiate a new order
     /// @dev Checks if the user has sufficient balance to create the order.
     ///      Checks if the user is not in the cannotPurchase mapping, if the order is an ask order.
+    ///      Checks if the user is the owner or manager of the share token, if the order is a share issuance ask order.
     ///      Creates a new order and adds it to the orders mapping.
     ///      Increments the nextOrderId. Returns the id of the created order.
     /// @param partition The partition of the token to trade
@@ -122,6 +123,15 @@ contract SwapContract {
             (!cannotPurchase[msg.sender] && !isAskOrder) || isAskOrder,
             "Cannot purchase from this address"
         );
+        require(
+            (isAskOrder &&
+                isShareIssuance &&
+                (shareToken.isOwner(msg.sender) ||
+                    shareToken.isManager(msg.sender))) ||
+                (!isAskOrder && isShareIssuance) ||
+                !isShareIssuance,
+            "Only owner or manager can create share issuance ask orders"
+        );
         address filler = address(0);
         Order memory newOrder = Order(
             msg.sender,
@@ -144,15 +154,15 @@ contract SwapContract {
     /// @param orderId The id of the order to approve
     function approveOrder(uint256 orderId) public onlyOwnerOrManager {
         require(
+            swapApprovalsEnabled || txnApprovalsEnabled,
+            "Approvals toggled off, no approval required"
+        );
+        require(
             !orders[orderId].status.isDisapproved,
             "Order already disapproved"
         );
         require(!orders[orderId].status.isApproved, "Order already approved");
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
-        require(
-            swapApprovalsEnabled || txnApprovalsEnabled,
-            "Approvals toggled off, no approval required"
-        );
         require(
             (txnApprovalsEnabled && orders[orderId].status.orderAccepted) ||
                 !txnApprovalsEnabled,
@@ -251,12 +261,12 @@ contract SwapContract {
     }
 
     /// @notice Fills a given order with a specific amount
-    /// @dev Checks if the order is an ask order and fills it using `_fillSale`, otherwise it fills it using `_fillBid`.
+    /// @dev Checks if the order is an ask order and fills it using `_fillAsk`, otherwise it fills it using `_fillBid`.
     /// @param orderId The id of the order to fill
     /// @param amount The amount to fill the order with
     function fillOrder(uint256 orderId, uint256 amount) public payable {
         if (orders[orderId].orderType.isAskOrder) {
-            _fillSale(orderId, amount);
+            _fillAsk(orderId, amount);
         } else {
             _fillBid(orderId, amount);
         }
@@ -268,7 +278,7 @@ contract SwapContract {
     ///      it issues new shares to the filler, otherwise it transfers shares from the initiator to the filler.
     /// @param orderId The id of the order to fill
     /// @param amount The amount to fill the order with
-    function _fillSale(uint256 orderId, uint256 amount) internal {
+    function _fillAsk(uint256 orderId, uint256 amount) internal {
         require(canFillOrder(orderId, amount), "Order cannot be filled");
 
         Proceeds memory proceeds = unclaimedProceeds[orders[orderId].initiator];
@@ -286,7 +296,7 @@ contract SwapContract {
         } else {
             require(
                 msg.value == orders[orderId].price * amount,
-                "Incorrect Ether amount sent"
+                "Incorrect Ether amount sent to fill ask order"
             );
             proceeds.ethProceeds += orders[orderId].price * amount;
         }
@@ -334,7 +344,7 @@ contract SwapContract {
         } else {
             require(
                 msg.value >= orders[orderId].price * orders[orderId].amount,
-                "Incorrect Ether amount sent"
+                "Incorrect Ether amount sent to fill bid order"
             );
             proceeds.ethProceeds +=
                 orders[orderId].price *
