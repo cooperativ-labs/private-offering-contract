@@ -82,7 +82,7 @@ contract ERC1410Standard is ERC1410Operator {
         bytes32 _partition,
         address _tokenHolder,
         uint256 _value
-    ) external onlyOperatorForPartition(_partition, msg.sender) {
+    ) external onlyOperatorForPartition(_partition, _tokenHolder) {
         _issueByPartition(_partition, _tokenHolder, _value);
     }
 
@@ -197,7 +197,7 @@ contract ERC1410Standard is ERC1410Operator {
         uint256 _value
     )
         external
-        onlyOperatorForPartition(_partition, msg.sender)
+        onlyOperatorForPartition(_partition, _from)
         whitelisted(_from)
         whitelisted(_to)
         returns (bytes32)
@@ -218,6 +218,18 @@ contract ERC1410Standard is ERC1410Operator {
         if (_isWhitelisted(_manager)) {
             _removeFromWhitelist(_manager);
         }
+    }
+
+    /**
+     * @dev Removes an address from the whitelist.
+     * @param account The address to be removed from the whitelist.
+     */
+    function removeFromWhitelist(
+        address account
+    ) public virtual onlyOwnerOrManager {
+        // require the balance of the address is zero
+        require(_balanceOf(account) == 0, "Balance not zero");
+        _removeFromWhitelist(account);
     }
 
     function isWhitelisted(address _address) external view returns (bool) {
