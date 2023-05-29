@@ -411,8 +411,8 @@ describe("Order Functions Testing", function () {
         await swapContract.connect(owner).approveOrder(1);
         await swapContract.connect(addr2).acceptOrder(0, amount);
         await swapContract.connect(addr2).acceptOrder(1, amount / 2);
-        await swapContract.connect(addr2).fillOrder(0);
-        await swapContract.connect(addr2).fillOrder(1);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(1, amount / 2);
 
         await expect(swapContract.connect(owner).disapproveOrder(0)).to.be.revertedWith("Order already fully filled");
         await expect(swapContract.connect(owner).disapproveOrder(1)).to.not.be.reverted;
@@ -473,7 +473,7 @@ describe("Order Functions Testing", function () {
         order = await swapContract.orders(0);
         expect(await order.status.orderAccepted).to.equal(true);
         // Addr2 fills the order
-        await swapContract.connect(addr2).fillOrder(0);
+        await swapContract.connect(addr2).fillOrder(0, amount / 2);
         order = await swapContract.orders(0);
         expect(await order.status.orderAccepted).to.equal(false);
         // Addr2 accepts the order again
@@ -503,8 +503,8 @@ describe("Order Functions Testing", function () {
         await swapContract.connect(owner).approveOrder(0);
         await swapContract.connect(addr2).acceptOrder(0, amount);
 
-        await expect(swapContract.connect(addr2).fillOrder(0)).to.not.be.reverted;
-        await expect(swapContract.connect(addr2).fillOrder(0)).to.be.revertedWith("Order already fully filled");
+        await expect(swapContract.connect(addr2).fillOrder(0, amount)).to.not.be.reverted;
+        await expect(swapContract.connect(addr2).fillOrder(0, amount)).to.be.revertedWith("Order already fully filled");
     });
 
     it("Should fill an approved AskOrder", async function () {
@@ -531,13 +531,13 @@ describe("Order Functions Testing", function () {
         // Addr2 accepts the order
         await swapContract.connect(addr2).acceptOrder(0, amount);
         // Fill the order
-        await swapContract.connect(addr2).fillOrder(0);
+        await swapContract.connect(addr2).fillOrder(0, amount);
 
         const order = await swapContract.orders(0);
         expect(order.filledAmount).to.equal(amount);
     });
 
-    it("WEIRD: Should allow filling an ask order that has been approved but not yet accepted", async function () {
+    it("Should allow filling an ask order that has been approved but not yet accepted", async function () {
         const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
 
         const partition = ethers.utils.formatBytes32String("partition1");
@@ -556,14 +556,11 @@ describe("Order Functions Testing", function () {
         // addr2 increase allowance for swap contract
         await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
 
-        /* // Accept the order
-        await swapContract.connect(addr2).acceptOrder(0, amount); */
-
         // Approve the order
         await swapContract.connect(owner).approveOrder(0);
 
         // Fill the order
-        await swapContract.connect(addr2).fillOrder(0);
+        await swapContract.connect(addr2).fillOrder(0, amount);
 
         const order = await swapContract.orders(0);
         expect(order.filledAmount).to.equal(amount);
@@ -587,7 +584,7 @@ describe("Order Functions Testing", function () {
         // owner approves the order
         await swapContract.connect(owner).approveOrder(0);
 
-        await expect(swapContract.connect(addr1).fillOrder(0)).to.be.revertedWith("Order not accepted");
+        await expect(swapContract.connect(addr1).fillOrder(0, amount)).to.be.revertedWith("Order not accepted");
     });
 
     it("Should not allow filling an order that is already cancelled or disapproved", async function () {
@@ -610,8 +607,8 @@ describe("Order Functions Testing", function () {
         const order1 = await swapContract.orders(1);
         expect(order1.status.isDisapproved).to.equal(true);
 
-        await expect(swapContract.connect(addr1).fillOrder(0)).to.be.revertedWith("Order already cancelled");
-        await expect(swapContract.connect(addr1).fillOrder(1)).to.be.revertedWith("Order already disapproved");
+        await expect(swapContract.connect(addr1).fillOrder(0, amount)).to.be.revertedWith("Order already cancelled");
+        await expect(swapContract.connect(addr1).fillOrder(1, amount)).to.be.revertedWith("Order already disapproved");
     });
 
     it("Should not allow non-initiator to fill a bid order", async function () {
@@ -638,6 +635,11 @@ describe("Order Functions Testing", function () {
         await swapContract.connect(addr2).acceptOrder(0, amount);
 
         // Try to fill the order with non-initiator
-        await expect(swapContract.connect(addr2).fillOrder(0)).to.be.revertedWith("Only initiator can fill bid orders. Only filler(who accepted order) can fill ask orders");
+        await expect(swapContract.connect(addr2).fillOrder(0, amount)).to.be.revertedWith("Only initiator can fill bid orders. Only filler(who accepted order) can fill ask orders");
     });
 });
+
+
+
+
+
