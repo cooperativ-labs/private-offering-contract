@@ -535,6 +535,11 @@ describe("Order Functions Testing", function () {
 
         const order = await swapContract.orders(0);
         expect(order.filledAmount).to.equal(amount);
+
+        const checkBlock = await ethers.provider.getBlockNumber();
+        expect(await shareToken.totalSupplyAt(partition, checkBlock)).to.equal(amount);
+        expect(await shareToken.balanceOfAt(partition, addr2.address, checkBlock)).to.equal(amount);
+
     });
 
     it("Should allow filling an ask order that has been approved but not yet accepted", async function () {
@@ -637,6 +642,294 @@ describe("Order Functions Testing", function () {
         // Try to fill the order with non-initiator
         await expect(swapContract.connect(addr2).fillOrder(0, amount)).to.be.revertedWith("Only initiator can fill bid orders. Only filler(who accepted order) can fill ask orders");
     });
+
+    // Test Cases for Cancelling an Order
+
+    it("Should allow the initiator to cancel an order", async function () {
+        const { owner, addr1, shareToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, false);
+
+        await swapContract.connect(addr1).cancelOrder(0);
+        const order = await swapContract.orders(0);
+        expect(order.status.isCancelled).to.equal(true);
+        expect(order.status.isApproved).to.equal(false);
+        expect(order.status.orderAccepted).to.equal(false);
+    });
+
+    it("Should not allow a non-initiator to cancel an order", async function () {
+        const { owner, addr1, addr2, shareToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, false);
+
+        await expect(swapContract.connect(addr2).cancelOrder(0)).to.be.revertedWith("Only initiator can cancel");
+    });
+
+    it("Should not allow cancelling an order that is already disapproved", async function () {
+        const { owner, addr1, shareToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, false);
+
+        await swapContract.connect(owner).disapproveOrder(0);
+        await expect(swapContract.connect(addr1).cancelOrder(0)).to.be.revertedWith("Order already disapproved");
+    });
+
+    it("Should not allow cancelling an order that is already cancelled", async function () {
+        const { owner, addr1, shareToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, false);
+
+        await swapContract.connect(addr1).cancelOrder(0);
+        await expect(swapContract.connect(addr1).cancelOrder(0)).to.be.revertedWith("Order already cancelled");
+    });
+
+    it("Should not allow cancelling an order that is already fully filled", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await expect(swapContract.connect(addr1).cancelOrder(0)).to.be.revertedWith("Order already fully filled");
+    });
+
+    // Test Cases for ClaimProceeds
+
+    it("Should allow users to claim their proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await swapContract.connect(addr1).claimProceeds();
+
+        const proceeds = await swapContract.unclaimedProceeds(addr1.address);
+        expect(proceeds.ethProceeds).to.equal(0);
+        expect(proceeds.tokenProceeds).to.equal(0);
+    });
+
+    it("Should not allow users to claim proceeds if they have none", async function () {
+        const { addr1, swapContract } = await setupOrderTesting();
+
+        await expect(swapContract.connect(addr1).claimProceeds()).to.be.revertedWith("No unclaimed proceeds");
+    });
+
+    it("Should allow the owner or manager to claim their proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addManager(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+
+        await paymentToken.connect(owner).mint(addr1.address, 2 * amount * price);
+        await paymentToken.connect(addr1).increaseAllowance(swapContract.address, 2 * amount * price);
+
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, false, true, true);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, false, true, true);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(owner).approveOrder(1);
+
+        await swapContract.connect(addr1).fillOrder(0, amount);
+
+        await swapContract.connect(addr2).claimProceeds();
+
+        await swapContract.connect(addr1).fillOrder(1, amount);
+
+        await swapContract.connect(owner).claimProceeds();
+
+        const ownerProceeds = await swapContract.unclaimedProceeds(owner.address);
+        expect(ownerProceeds.ethProceeds).to.equal(0);
+        expect(ownerProceeds.tokenProceeds).to.equal(0);
+    });
+
+    it("Should not allow the non-manager and non-owner to claim the owner's proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addManager(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+
+        await paymentToken.connect(owner).mint(addr1.address, 2 * amount * price);
+        await paymentToken.connect(addr1).increaseAllowance(swapContract.address, 2 * amount * price);
+
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, false, true, true);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, false, true, true);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(owner).approveOrder(1);
+
+        await swapContract.connect(addr1).fillOrder(0, amount);
+
+        await swapContract.connect(addr2).claimProceeds();
+
+        await swapContract.connect(addr1).fillOrder(1, amount);
+
+        expect(await swapContract.connect(addr1).claimProceeds()).to.be.revertedWith("Only owner or manager can claim proceeds");
+    });
+
+    // Test Cases for UnsafeWithdrawAllProceeds
+    it("Should allow owner to unsafe withdraw all proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await swapContract.connect(owner).UnsafeWithdrawAllProceeds();
+
+        const contractEthBalance = await ethers.provider.getBalance(swapContract.address);
+        const contractTokenBalance = await paymentToken.balanceOf(swapContract.address);
+        expect(contractEthBalance).to.equal(0);
+        expect(contractTokenBalance).to.equal(0);
+    });
+
+    it("Should allow manager to unsafe withdraw all proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addManager(addr2.address);
+        let manager = addr2;
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await swapContract.connect(manager).UnsafeWithdrawAllProceeds();
+
+        const contractEthBalance = await ethers.provider.getBalance(swapContract.address);
+        const contractTokenBalance = await paymentToken.balanceOf(swapContract.address);
+        expect(contractEthBalance).to.equal(0);
+        expect(contractTokenBalance).to.equal(0);
+    });
+
+    it("Should not allow non-owner and non-manager to unsafe withdraw all proceeds", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await expect(swapContract.connect(addr2).UnsafeWithdrawAllProceeds()).to.be.revertedWith("Sender is not the owner or manager");
+    });
+
+    it("Should emit ProceedsWithdrawn event on successful UnsafeWithdrawAllProceeds call", async function () {
+        const { owner, addr1, addr2, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr2.address);
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        await paymentToken.connect(owner).mint(addr2.address, amount * price);
+        await paymentToken.connect(addr2).increaseAllowance(swapContract.address, amount * price);
+
+        await swapContract.connect(owner).approveOrder(0);
+        await swapContract.connect(addr2).acceptOrder(0, amount);
+        await swapContract.connect(addr2).fillOrder(0, amount);
+
+        await expect(swapContract.connect(owner).UnsafeWithdrawAllProceeds())
+            .to.emit(swapContract, 'ProceedsWithdrawn')
+            .withArgs(owner.address, 0, amount * price);
+    });
+
+
 });
 
 
