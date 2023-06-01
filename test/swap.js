@@ -4,7 +4,7 @@ const { ethers } = require("hardhat");
 describe("Order Functions Testing", function () {
 
     async function setupOrderTesting() {
-        const [owner, addr1, addr2] = await ethers.getSigners();
+        const [owner, addr1, addr2, addr3] = await ethers.getSigners();
 
         const ShareToken = await ethers.getContractFactory("ERC1410Standard");
         const shareToken = await ShareToken.deploy();
@@ -15,7 +15,7 @@ describe("Order Functions Testing", function () {
         const SwapContract = await ethers.getContractFactory("SwapContract");
         const swapContract = await SwapContract.deploy(shareToken.address, paymentToken.address);
 
-        return { owner, addr1, addr2, shareToken, paymentToken, swapContract };
+        return { owner, addr1, addr2, addr3, shareToken, paymentToken, swapContract };
     }
 
     // Test cases for initiateOrder()
@@ -517,7 +517,7 @@ describe("Order Functions Testing", function () {
         await shareToken.connect(owner).addToWhitelist(addr1.address);
         await shareToken.connect(owner).addToWhitelist(addr2.address);
         await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
-        // make swapContract an authorized operator of addr1
+        // make swapContract an authorized operator
         await shareToken.connect(owner).authorizeOperator(swapContract.address);
         // initiate an order
         await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
@@ -641,6 +641,47 @@ describe("Order Functions Testing", function () {
 
         // Try to fill the order with non-initiator
         await expect(swapContract.connect(addr2).fillOrder(0, amount)).to.be.revertedWith("Only initiator can fill bid orders. Only filler(who accepted order) can fill ask orders");
+    });
+
+    it("Should allow a manager to approve an ask order and let another address fill", async function () {
+        const { owner, addr1, addr2, addr3, shareToken, paymentToken, swapContract } = await setupOrderTesting();
+        const partition = ethers.utils.formatBytes32String("partition1");
+        const amount = 100;
+        const price = 1;
+
+        await shareToken.connect(owner).addToWhitelist(addr1.address);
+        await shareToken.connect(owner).addToWhitelist(addr3.address);
+
+        // make swapContract an operator for shareToken
+        await shareToken.connect(owner).authorizeOperator(swapContract.address);
+        // make addr2 a manager
+        await shareToken.connect(owner).addManager(addr2.address);
+        // issue some shares to addr1
+        await shareToken.connect(owner).issueByPartition(partition, addr1.address, amount);
+        // mint payment token to addr3
+        await paymentToken.connect(owner).mint(addr3.address, amount * price);
+        // addr3 increase allowance for swap contract
+        await paymentToken.connect(addr3).increaseAllowance(swapContract.address, amount * price);
+        // addr1 initiates an ask order
+        await swapContract.connect(addr1).initiateOrder(partition, amount, price, true, false, true);
+        // enable transaction approvals
+        await swapContract.connect(owner).toggleTxnApprovals();
+        expect(await swapContract.txnApprovalsEnabled()).to.equal(true);
+        // addr3 accepts the order
+        await swapContract.connect(addr3).acceptOrder(0, amount);
+        // addr2 approves the order
+        await swapContract.connect(addr2).approveOrder(0);
+
+        const order = await swapContract.orders(0);
+        expect(order.status.isApproved).to.equal(true);
+
+        // addr3 fills the order
+        await swapContract.connect(addr3).fillOrder(0, amount);
+
+        // check total supply and share token balance of addr3
+        const checkBlock = await ethers.provider.getBlockNumber();
+        expect(await shareToken.totalSupplyAt(partition, checkBlock)).to.equal(amount);
+        expect(await shareToken.balanceOfAt(partition, addr3.address, checkBlock)).to.equal(amount);
     });
 
     // Test Cases for Cancelling an Order
@@ -931,8 +972,3 @@ describe("Order Functions Testing", function () {
 
 
 });
-
-
-
-
-
