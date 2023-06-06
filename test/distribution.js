@@ -82,8 +82,19 @@ describe("DividendsDistribution", function () {
         await ethers.provider.send("evm_setNextBlockTimestamp", [payoutDate]);
         await ethers.provider.send("evm_mine");
 
+        // check the claimable dividend amount of addr1
+        expect(await dividendsDistribution.getClaimableAmount(addr1.address, 0)).to.equal(dividendAmount);
+
         await dividendsDistribution.connect(addr1).claimDividend(0);
         expect(await dividendsDistribution.hasClaimedDividend(addr1.address, 0)).to.be.true;
+
+        // check payoutToken balance of dividendsDistribution contract
+        expect(await payoutToken.balanceOf(dividendsDistribution.address)).to.equal(0);
+        // check payoutToken balance of addr1
+        expect(await payoutToken.balanceOf(addr1.address)).to.equal(dividendAmount);
+
+        // check the claimable dividend amount of addr1
+        expect(await dividendsDistribution.getClaimableAmount(addr1.address, 0)).to.equal(0);
     });
 
     it("Should fail if when claiming dividend, dividend index is invalid", async function () {
