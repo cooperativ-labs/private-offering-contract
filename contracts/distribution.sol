@@ -24,10 +24,11 @@ contract DividendsDistribution {
         mapping(address => bool) claimed;
     }
 
-    string public contractVersion = "0.1.1";
+    string public contractVersion = "0.1.3";
     IERC1410 public sharesToken;
     uint256 public reclaim_time;
     mapping(address => uint256) public balances;
+    mapping(address => mapping(uint256 => uint256)) public claimedAmount;
     Dividend[] public dividends;
 
     event DividendDeposited(
@@ -153,8 +154,6 @@ contract DividendsDistribution {
             "Insufficient remaining dividend amount"
         );
 
-        dividend.claimed[msg.sender] = true;
-        dividend.amountRemaining = dividend.amountRemaining.sub(claimAmount);
         if (dividend.isERC20Payout) {
             require(
                 dividend.payoutToken != address(0),
@@ -165,6 +164,12 @@ contract DividendsDistribution {
             payable(msg.sender).transfer(claimAmount);
         }
 
+        dividend.claimed[msg.sender] = true;
+        dividend.amountRemaining = dividend.amountRemaining.sub(claimAmount);
+        claimedAmount[msg.sender][_dividendIndex] = claimedAmount[msg.sender][
+            _dividendIndex
+        ].add(claimAmount);
+
         emit DividendClaimed(
             msg.sender,
             _dividendIndex,
@@ -173,9 +178,11 @@ contract DividendsDistribution {
         );
     }
 
-    function recycleDividend(
-        uint256 _dividendIndex
-    ) external onlyOwnerOrManager {
+    function reclaimDividend(uint256 _dividendIndex) external {
+        require(
+            sharesToken.isOwner(msg.sender),
+            "Only owner can reclaim dividend"
+        );
         require(_dividendIndex < dividends.length, "Invalid dividend index");
 
         Dividend storage dividend = dividends[_dividendIndex];
@@ -219,8 +226,7 @@ contract DividendsDistribution {
         if (
             dividend.claimed[_address] ||
             dividend.recycled ||
-            dividend.amountRemaining == 0 ||
-            sharesToken.balanceOf(_address) == 0
+            dividend.amountRemaining == 0
         ) {
             return 0;
         }

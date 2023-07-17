@@ -25,7 +25,6 @@ contract SwapContract {
     /// @dev Holds all the status details related to a specific order.
     struct status {
         bool isApproved; /// Indicates if the order has been approved by manager.
-        bool isDisapproved; /// Indicates if the order has been disapproved manager.
         bool isCancelled; /// Indicates if the order has been cancelled.
         bool orderAccepted; /// Indicates if the initiated order has been accepted.
     }
@@ -45,12 +44,12 @@ contract SwapContract {
         uint256 tokenProceeds; /// The amount of tokens to be claimed by the user.
     }
 
-    string public contractVersion = "0.1.0"; /// The version of the contract.
+    string public contractVersion = "0.1.6"; /// The version of the contract.
     IERC1410 public shareToken; /// The ERC1410 token that the contract will interact with.
     IERC20 public paymentToken; /// The ERC20 token that the contract will interact with.
     uint256 public nextOrderId = 0; /// The id of the next order to be created.
     bool public swapApprovalsEnabled = true; /// Indicates if swap approvals are enabled.
-    bool public txnApprovalsEnabled = false; /// Indicates if transaction approvals are enabled.
+    bool public txnApprovalsEnabled = true; /// Indicates if transaction approvals are enabled.
     mapping(uint256 => Order) public orders; /// The mapping of order ids to orders.
     mapping(address => Proceeds) public unclaimedProceeds; /// The mapping of addresses to proceeds.
     mapping(address => bool) public cannotPurchase; /// The mapping of addresses to cannotPurchase status.
@@ -66,6 +65,11 @@ contract SwapContract {
         uint256 ethAmount,
         uint256 tokenAmount
     );
+
+    /// @notice Event emitted when an order is reset by owner or manager
+    /// @param orderId The id of the order
+    /// @param timestamp The timestamp of the reset
+    event OrderReset(uint256 indexed orderId, uint256 timestamp);
 
     /// @notice Modifier to check if the sender is the owner or manager of the shares token contract
     modifier onlyOwnerOrManager() {
@@ -158,7 +162,7 @@ contract SwapContract {
             0,
             filler,
             orderType(isShareIssuance, isAskOrder, isErc20Payment),
-            status(false, false, false, false)
+            status(false, false, false)
         );
         orders[nextOrderId] = newOrder;
         return nextOrderId++;
@@ -167,17 +171,14 @@ contract SwapContract {
     /// @notice Approves a given order
     /// @dev Only an owner or manager can call this function. Checks that the order has not already been disapproved, approved or cancelled.
     ///      Also checks whether approvals are enabled. If transaction approvals are enabled, it checks that the initiated order has been accepted.
-    ///      Finally, if the order is a share issuance, it sets the initiated order as accepted and the filler to the owner of the share token contract.
+    ///      Finally, if the order is a share issuance and bid order, it sets the initiated order as accepted and the filler to the owner of the share token contract.
     /// @param orderId The id of the order to approve
     function approveOrder(uint256 orderId) public onlyOwnerOrManager {
         require(
             swapApprovalsEnabled || txnApprovalsEnabled,
             "Approvals toggled off, no approval required"
         );
-        require(
-            !orders[orderId].status.isDisapproved,
-            "Order already disapproved"
-        );
+
         require(!orders[orderId].status.isApproved, "Order already approved");
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
         require(
@@ -198,30 +199,31 @@ contract SwapContract {
             orders[orderId].status.orderAccepted = true;
             if (!orders[orderId].orderType.isAskOrder) {
                 orders[orderId].filler = shareToken.owner();
+                acceptedOrderQty[orders[orderId].filler][orderId] = orders[
+                    orderId
+                ].amount;
             }
         }
     }
 
     /// @notice Disapproves a given order
-    /// @dev Only an owner or manager can call this function. Checks that the order has not already been disapproved or cancelled.
-    ///      Also checks whether approvals are enabled, and checks that the order has not been fully filled yet.
-    ///      Finally, it marks the order as disapproved.
-    /// @param orderId The id of the order to disapprove
-    function disapproveOrder(uint256 orderId) public onlyOwnerOrManager {
-        require(
-            !orders[orderId].status.isDisapproved,
-            "Order already disapproved"
-        );
+    /// @dev Only an owner or manager can call this function. Checks that the order has not already been cancelled.
+    ///      Also checks that the order has not been fully filled yet.
+    /// @param orderId The id of the order to reset
+    function managerResetOrder(uint256 orderId) public onlyOwnerOrManager {
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
-        require(
-            swapApprovalsEnabled || txnApprovalsEnabled,
-            "Approvals toggled off"
-        );
+
         require(
             orders[orderId].filledAmount < orders[orderId].amount,
             "Order already fully filled"
         );
-        orders[orderId].status.isDisapproved = true;
+        orders[orderId].status.isApproved = false;
+        orders[orderId].status.orderAccepted = false;
+        acceptedOrderQty[orders[orderId].filler][orderId] = 0;
+        orders[orderId].filler = address(0);
+
+        // emit an event that the order has been reset
+        emit OrderReset(orderId, block.timestamp);
     }
 
     /// @notice Accepts a given order
@@ -266,6 +268,22 @@ contract SwapContract {
         acceptedOrderQty[msg.sender][orderId] = amount;
     }
 
+    /// @notice Cancels the acceptance of a given order
+    /// @dev Only a whitelisted address can call this function.
+    ///      Checks that the order has been accepted and that the message sender is the filler of the order.
+    ///      Finally, it marks the order as not accepted and sets the filler to address(0).
+    /// @param orderId The id of the order to cancel acceptance of
+    function cancelAcceptance(uint256 orderId) public onlyWhitelisted {
+        require(orders[orderId].status.orderAccepted, "Order not accepted");
+        require(
+            orders[orderId].filler == msg.sender,
+            "Only filler can cancel acceptance"
+        );
+        orders[orderId].status.orderAccepted = false;
+        orders[orderId].filler = address(0);
+        acceptedOrderQty[msg.sender][orderId] = 0;
+    }
+
     /// @notice Checks whether a given order can be filled with a specific amount
     /// @dev Checks if the order has not been cancelled, that it has been approved and that it won't be overfilled by filling it with the specified amount.
     ///      Also checks that if the order is a bid order, the message sender is the initiator of the order.
@@ -282,10 +300,6 @@ contract SwapContract {
         uint256 amount
     ) public view returns (bool) {
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
-        require(
-            !orders[orderId].status.isDisapproved,
-            "Order already disapproved"
-        );
         if (
             (!orders[orderId].orderType.isAskOrder && !txnApprovalsEnabled) ||
             txnApprovalsEnabled
@@ -395,7 +409,7 @@ contract SwapContract {
     ///      it issues new shares to the initiator, otherwise it transfers shares from the filler (address who accepted order) to the initiator.
     /// @param orderId The id of the order to fill
     function _fillBid(uint256 orderId) internal {
-        uint256 amount = acceptedOrderQty[msg.sender][orderId];
+        uint256 amount = acceptedOrderQty[orders[orderId].filler][orderId];
         require(canFillOrder(orderId, amount), "Order cannot be filled");
         Proceeds memory proceeds = unclaimedProceeds[orders[orderId].filler];
 
@@ -404,38 +418,34 @@ contract SwapContract {
                 paymentToken.transferFrom(
                     msg.sender,
                     address(this),
-                    orders[orderId].price * orders[orderId].amount
+                    orders[orderId].price * amount
                 ),
                 "Transfer of PaymentToken from buyer failed"
             );
-            proceeds.tokenProceeds +=
-                orders[orderId].price *
-                orders[orderId].amount;
+            proceeds.tokenProceeds += orders[orderId].price * amount;
         } else {
             require(
                 msg.value >= orders[orderId].price * orders[orderId].amount,
                 "Incorrect Ether amount sent to fill bid order"
             );
-            proceeds.ethProceeds +=
-                orders[orderId].price *
-                orders[orderId].amount;
+            proceeds.ethProceeds += orders[orderId].price * amount;
         }
 
         if (orders[orderId].orderType.isShareIssuance) {
             shareToken.operatorIssueByPartition(
                 orders[orderId].partition,
                 orders[orderId].initiator,
-                orders[orderId].amount
+                amount
             );
         } else {
             shareToken.operatorTransferByPartition(
                 orders[orderId].partition,
                 orders[orderId].filler,
                 orders[orderId].initiator,
-                orders[orderId].amount
+                amount
             );
         }
-        orders[orderId].filledAmount += orders[orderId].amount;
+        orders[orderId].filledAmount += amount;
         orders[orderId].status.orderAccepted = false;
         unclaimedProceeds[orders[orderId].filler] = proceeds;
     }
@@ -448,10 +458,6 @@ contract SwapContract {
         require(
             msg.sender == orders[orderId].initiator,
             "Only initiator can cancel"
-        );
-        require(
-            !orders[orderId].status.isDisapproved,
-            "Order already disapproved"
         );
         require(!orders[orderId].status.isCancelled, "Order already cancelled");
         require(
@@ -522,13 +528,12 @@ contract SwapContract {
     /// @dev This function can only be called by the owner or a manager
     ///      This function is unsafe as investors who have not claimed their proceeds will not be able to do so after this function is called
     /// @return success A boolean indicating whether the withdrawal was successful
-    function UnsafeWithdrawAllProceeds()
-        public
-        onlyOwnerOrManager
-        returns (bool success)
-    {
+    function UnsafeWithdrawAllProceeds() public returns (bool success) {
         uint256 ethAmount = address(this).balance;
         uint256 tokenAmount = paymentToken.balanceOf(address(this));
+
+        // require only owner can withdraw
+        require(msg.sender == shareToken.owner(), "Only owner can withdraw");
 
         // Ensuring the contract has ether balance before attempting transfer
         if (ethAmount > 0) {
@@ -566,56 +571,4 @@ contract SwapContract {
     function banAddress(address _address) external onlyOwnerOrManager {
         cannotPurchase[_address] = true;
     }
-
-    /*   /// @notice Returns the current status of swap approvals
-    /// @dev This function doesn't modify state and can be freely called.
-    /// @return The current status of swap approvals
-    function isSwapApprovalEnabled() external view returns (bool) {
-        return swapApprovalsEnabled;
-    }
-
-    /// @notice Returns the current status of transaction approvals
-    /// @dev This function doesn't modify state and can be freely called.
-    /// @return The current status of transaction approvals
-    function isTxnApprovalEnabled() external view returns (bool) {
-        return txnApprovalsEnabled;
-    }
-
-    /// @notice Fetches details of an order
-    /// @param orderId The id of the order whose details are to be fetched
-    /// @return The Order struct of the specified order
-    function getOrderDetails(
-        uint256 orderId
-    ) public view returns (Order memory) {
-        return orders[orderId];
-    }
-
-    /// @notice Fetches the unclaimed proceeds of a user
-    /// @param user The address of the user whose unclaimed proceeds are to be fetched
-    /// @return The Proceeds struct of the specified user
-    function getUnclaimedProceeds(
-        address user
-    ) public view returns (Proceeds memory) {
-        return unclaimedProceeds[user];
-    }
-
-    /// @notice Fetches the balance of ETH held by the contract
-    /// @return The amount of ETH (in wei) held by the contract
-    function getBalanceETH() public view returns (uint256) {
-        return address(this).balance;
-    }
-
-    /// @notice Fetches the balance of the payment token held by the contract
-    /// @return The amount of the payment token held by the contract
-    function getBalanceERC20() public view returns (uint256) {
-        return paymentToken.balanceOf(address(this));
-    }
-
-    /// @notice Returns the banned status of an address in terms of making purchases
-    /// @dev This function doesn't modify state and can be freely called.
-    /// @param _address The address to check
-    /// @return The banned status of the address
-    function isBanned(address _address) external view returns (bool) {
-        return cannotPurchase[_address];
-    } */
 }
