@@ -3,10 +3,13 @@
 ### Overview
 
 Syndicate, developed by Cooperativ Labs Inc., is a solution for launching and managing private security offerings on Ethereum and Polygon. It streamlines the investment process, enabling efficient management of syndication deals. Learn more at Cooperativ.io.
-
-Live at: https://staging.syndicate.cooperativ.io/
-
-Demo videos: https://www.youtube.com/playlist?list=PLdUGBxGRPWz_n-tWwlKt_o6phKlHsR6CC
+- Live at: https://staging.syndicate.cooperativ.io/
+- Demo videos: https://www.youtube.com/playlist?list=PLdUGBxGRPWz_n-tWwlKt_o6phKlHsR6CC
+- 
+### Contents
+- [ERC1410 Share Token](https://github.com/cooperativ-labs/private-offering-contract/tree/main?tab=readme-ov-file#erc1410standard-smart-contract)
+- [Swap Contract](https://github.com/cooperativ-labs/private-offering-contract/tree/main?tab=readme-ov-file#swapcontract-for-erc1410-shares-with-erc20-or-eth-payments)
+- [Distribution Contract]()
 
 ## ERC1410Standard Smart Contract
 
@@ -117,6 +120,59 @@ The `SwapContract` smart contract facilitates the trading of ERC1410 shares, wit
 - `toggleSwapApprovals`: Toggles the swap approval functionality.
 - `toggleTxnApprovals`: Toggles the transaction approval functionality.
 - `banAddress`: Prevents an address from initiating bid orders or accepting ask orders.
+
+## Dividends Distribution Contract
+
+### Overview
+
+`DividendsDistribution` is a smart contract designed for distributing dividends among shareholders of an ERC1410 token. It supports dividend distribution in both ERC20 tokens and Ether (ETH), ensuring a flexible and efficient process for dividend allocation and claiming.
+
+### Features
+
+- **Dividend Management**: Create and manage dividend payouts for different partitions of ERC1410 shares.
+- **Flexible Payout Options**: Support for ERC20 token or ETH dividends.
+- **Claiming Process**: Shareholders can claim their dividends after the payout date.
+- **Dividend Recycling**: Unclaimed dividends can be reclaimed by the owner after a specified time.
+- **Shareholder Tracking**: Tracks shareholders' claims and balances.
+
+### Structs
+
+- `Dividend`: Stores data about each dividend, including partition, payout details, amount, and claim status.
+
+### Public Variables
+
+- `contractVersion`: Indicates the version of the contract.
+- `sharesToken`: Reference to the ERC1410 token whose shareholders are eligible for dividends.
+- `reclaim_time`: Time after which unclaimed dividends can be reclaimed.
+- `balances`: Tracks the balance of each payout token within the contract.
+- `claimedAmount`: Records the amount of dividends claimed by each shareholder.
+- `dividends`: An array of all dividends.
+
+### Events
+
+- `DividendDeposited`: Emitted when a dividend is deposited.
+- `DividendClaimed`: Emitted when a dividend is claimed.
+- `DividendRecycled`: Emitted when unclaimed dividends are recycled.
+
+### Modifiers
+
+- `onlyOwnerOrManager`: Ensures that only the owner or manager can perform certain actions.
+
+### Key Functions
+
+#### Dividend Deposit
+
+- `depositDividend`: Deposits a dividend for a specific partition. Returns the index of the created dividend.
+
+#### Dividend Claiming
+
+- `claimDividend`: Allows shareholders to claim their portion of a dividend.
+- `reclaimDividend`: Enables the owner to reclaim unclaimed dividends after the reclaim time.
+
+#### Utility Functions
+
+- `getClaimableAmount`: Returns the amount of dividend claimable by a specific address.
+- `hasClaimedDividend`: Checks if an address has claimed a specific dividend.
 
 
 ### Test Cases
