@@ -92,7 +92,7 @@ The `SwapContract` smart contract facilitates the trading of ERC1410 shares, wit
 - `ProceedsWithdrawn`: Emitted when a user withdraws their proceeds.
 - `OrderReset`: Emitted when an order is reset by an owner or manager.
 
-## Modifiers
+### Modifiers
 
 - `onlyOwnerOrManager`: Ensures that only the owner or manager of the share token can perform certain actions.
 - `onlyWhitelisted`: Restricts functions to only whitelisted addresses.
