@@ -9,7 +9,7 @@ Syndicate, developed by Cooperativ Labs Inc., is a solution for launching and ma
 ### Contents
 - [ERC1410 Share Token](https://github.com/cooperativ-labs/private-offering-contract/tree/main?tab=readme-ov-file#erc1410standard-smart-contract)
 - [Swap Contract](https://github.com/cooperativ-labs/private-offering-contract/tree/main?tab=readme-ov-file#swapcontract-for-erc1410-shares-with-erc20-or-eth-payments)
-- [Distribution Contract]()
+- [Distribution Contract](https://github.com/cooperativ-labs/private-offering-contract/blob/main/README.md#dividends-distribution-contract)
 
 ## ERC1410Standard Smart Contract
 
