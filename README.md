@@ -1,5 +1,7 @@
 # Private Offering Smart Contracts
 
+**Disclaimer:** These contracts are tested but have not been independently audited. Use at your own risk.
+
 ### Overview
 
 Syndicate, developed by Cooperativ Labs Inc., is a solution for launching and managing private security offerings on Ethereum and Polygon. It streamlines the investment process, enabling efficient management of syndication deals. Learn more at Cooperativ.io.
