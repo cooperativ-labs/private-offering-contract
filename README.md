@@ -4,6 +4,10 @@
 
 The `ERC1410Standard` smart contract is designed for tokenization and management of assets on a blockchain. It leverages the ERC1410 standard, a part of the security token standard, allowing for partitioned ownership of tokens, which can represent real-world assets or rights.
 
+Live at: https://staging.syndicate.cooperativ.io/
+
+Demo videos: https://www.youtube.com/playlist?list=PLdUGBxGRPWz_n-tWwlKt_o6phKlHsR6CC
+
 ## Key Features
 
 - **Partitioned Ownership**: Tokens are divided into partitions, enabling distinct characteristics for different groups of tokens within the same contract.
